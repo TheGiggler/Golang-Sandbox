@@ -31,15 +31,18 @@ func MakeRequest() {
 
 func main() {
 	updateChan := make(chan string)
+	quit := make(chan bool)
+
 	fmt.Printf("Welcome to Sports!\n")
 
 	var wg sync.WaitGroup
 	var mux = sync.Mutex{}
 	var games = LoadGames()
 	
-	
-	go OutputGameResult(updateChan)
-	for true {
+
+	go OutputGameResult(updateChan,quit)
+	//for true {
+		for i := 0; i < 10; i++ {
 
 
 		for _, game := range games {
@@ -50,8 +53,12 @@ func main() {
 		}
 		wg.Wait()
 
-		time.Sleep(time.Second * 5)
+		time.Sleep(time.Second * 2)
+		//quit<-true
 	}
+
+	
+	time.Sleep(time.Second * 5)
 	// for _, element := range pbps {
 	// 	fmt.Printf(element.GetPlayByPlay() + "\n")
 	// 	var p = &element
@@ -63,7 +70,7 @@ func main() {
 	fmt.Printf("Sports is over!\n")
 }
 
-func OutputGameResult(ch chan string) {
+func OutputGameResult(ch chan string, quit chan bool) {
 
 	timer := time.NewTimer(time.Second * 6)
 	for true {
@@ -72,10 +79,15 @@ func OutputGameResult(ch chan string) {
 			fmt.Println("received", msg1)
 		case <-timer.C:
 			fmt.Sprint("Timer expired")
-		default:
-			//fmt.Println("no activity")
+		case<-quit:
+		fmt.Sprint("Quitting OutputGameResult")
+			return
+
+		//default:
+		//	fmt.Println("no activity")
 		}
 	}
+
 }
 
 func UpdateGame(GameID int, wg *sync.WaitGroup, m *sync.Mutex, ch chan string) {
