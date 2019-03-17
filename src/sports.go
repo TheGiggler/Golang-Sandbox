@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-var updateCount int;
+var updateCount int
 
 var authHeader = "5384639843049-39-"
 
@@ -30,22 +30,28 @@ func MakeRequest() {
 }
 
 func main() {
+	updateChan := make(chan string)
 	fmt.Printf("Welcome to Sports!\n")
 
 	var wg sync.WaitGroup
 	var mux = sync.Mutex{}
 	var games = LoadGames()
-for true{
-	for _,game :=range games {
+	
+	
+	go OutputGameResult(updateChan)
+	for true {
 
-		wg.Add(1)
-		go UpdateGame(game.GameID,&wg,&mux)
 
+		for _, game := range games {
+
+			wg.Add(1)
+			go UpdateGame(game.GameID, &wg, &mux, updateChan)
+
+		}
+		wg.Wait()
+
+		time.Sleep(time.Second * 5)
 	}
-	wg.Wait()
-
-	time.Sleep(time.Second*5)
-}
 	// for _, element := range pbps {
 	// 	fmt.Printf(element.GetPlayByPlay() + "\n")
 	// 	var p = &element
@@ -57,13 +63,29 @@ for true{
 	fmt.Printf("Sports is over!\n")
 }
 
-func UpdateGame (GameID int, wg *sync.WaitGroup,m *sync.Mutex){
+func OutputGameResult(ch chan string) {
 
-	fmt.Printf("Updating GameID %v\n", GameID)
-	m.Lock();
+	timer := time.NewTimer(time.Second * 6)
+	for true {
+		select {
+		case msg1 := <-ch:
+			fmt.Println("received", msg1)
+		case <-timer.C:
+			fmt.Sprint("Timer expired")
+		default:
+			//fmt.Println("no activity")
+		}
+	}
+}
+
+func UpdateGame(GameID int, wg *sync.WaitGroup, m *sync.Mutex, ch chan string) {
+
+	fmt.Printf("In Updating GameID %v\n", GameID)
+	m.Lock()
 	updateCount++
 	m.Unlock()
-	fmt.Printf("updateCount: %v\n", updateCount)
+	fmt.Printf("updateCount %v\n", updateCount)
+	ch <- fmt.Sprint("Updating GameID ", GameID)
 	wg.Done()
 }
 
@@ -75,12 +97,11 @@ func GetLivePlayByPlay(gameID int) models.PlayByPlay {
 
 func LoadGames() []models.Game {
 	var games = []models.Game{
-		models.Game{GameID:1 },
-		models.Game{GameID:2 },
-		models.Game{GameID:3 },
-		models.Game{GameID:4 },
+		models.Game{GameID: 1},
+		models.Game{GameID: 2},
+		models.Game{GameID: 3},
+		models.Game{GameID: 4},
 	}
-	
 
 	return games
 }
