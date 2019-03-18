@@ -6,17 +6,28 @@ import (
 	"log"
 	"models"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
+	"strconv"
+	"encoding/json"
 )
 
 var updateCount int
 
-var authHeader = "5384639843049-39-"
+var authHeader = "ODA5MWU4OGUtZDQ2Ni00YTdlLTljNTUtZTE2MTZhOk1ZU1BPUlRTRkVFRFM="
 
 //test http request
-func MakeRequest() {
-	resp, err := http.Get("https://www.mlb.com")
+func RequestPlayByPay(GameID int) {
+
+	id := strconv.Itoa(GameID)
+	tmp := "https://api.mysportsfeeds.com/v2.1/pull/nhl/2018-2019/games/{game}/playbyplay.json"
+
+	uri := strings.Replace(tmp, "{game}", id, -1)
+	client := &http.Client{}
+	req, err := http.NewRequest("GET", uri, nil)
+	req.Header.Add("Authorization","Basic " + authHeader)
+	resp, err := client.Do(req)
 	if err != nil {
 		log.Fatalln(err)
 	}
@@ -29,6 +40,39 @@ func MakeRequest() {
 	log.Println(string(body))
 }
 
+func GetGamesForToday() []models.Game{
+
+	//todo: get date parameter from current date
+	uri:="https://api.mysportsfeeds.com/v2.1/pull/nhl/2018-2019/date/20190317/games.json"
+	client := &http.Client{}
+	req, err := http.NewRequest("GET", uri, nil)
+	req.Header.Add("Authorization","Basic " + authHeader)
+	resp, err := client.Do(req)
+	if err != nil {
+		log.Fatalln(err)
+	}
+
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		log.Fatalln(err)
+	}
+
+	gameFeed:=&models.GameFeed{}
+	newerr := json.Unmarshal([]byte(body), gameFeed)
+	if(newerr!=nil) {
+		log.Fatal(newerr)
+	}
+
+	games:=[]models.Game{}
+	for _, game := range gameFeed.Games {
+		g := models.Game{GameID:game.Schedule.ID}
+		games = append(games,g)
+    }
+	//game:=new(models.Game)
+
+	return games
+}
+
 func main() {
 	updateChan := make(chan string)
 	quit := make(chan bool)
@@ -37,13 +81,12 @@ func main() {
 
 	var wg sync.WaitGroup
 	var mux = sync.Mutex{}
-	var games = LoadGames()
-	
+	var games = GetGamesForToday()
+	//need to get game list first ... needs to run synchronously?
 
-	go OutputGameResult(updateChan,quit)
+	go OutputGameResult(updateChan, quit)
 	//for true {
-		for i := 0; i < 10; i++ {
-
+	for i := 0; i < 10; i++ {
 
 		for _, game := range games {
 
@@ -57,8 +100,7 @@ func main() {
 		//quit<-true
 	}
 
-	
-	time.Sleep(time.Second * 5)
+	//time.Sleep(time.Second * 5)
 	// for _, element := range pbps {
 	// 	fmt.Printf(element.GetPlayByPlay() + "\n")
 	// 	var p = &element
@@ -66,39 +108,43 @@ func main() {
 	// 	fmt.Printf("%v\n", element.Index)
 
 	// }
-
+	fmt.Sprint("Sending quit")
+	quit <- true
+	fmt.Sprint("Quit sent")
+	time.Sleep(time.Second * 5)
 	fmt.Printf("Sports is over!\n")
 }
 
 func OutputGameResult(ch chan string, quit chan bool) {
 
-	timer := time.NewTimer(time.Second * 6)
+	//timer := time.NewTimer(time.Second * 6)
 	for true {
 		select {
 		case msg1 := <-ch:
 			fmt.Println("received", msg1)
-		case <-timer.C:
-			fmt.Sprint("Timer expired")
-		case<-quit:
-		fmt.Sprint("Quitting OutputGameResult")
+		//case <-timer.C:
+		//fmt.Sprint("Timer expired")
+		case <-quit:
+			fmt.Println("Quitting OutputGameResult")
 			return
 
-		//default:
-		//	fmt.Println("no activity")
+			//default:
+			//	fmt.Println("no activity")
 		}
 	}
 
 }
 
 func UpdateGame(GameID int, wg *sync.WaitGroup, m *sync.Mutex, ch chan string) {
-
+	defer wg.Done()
 	fmt.Printf("In Updating GameID %v\n", GameID)
 	m.Lock()
 	updateCount++
 	m.Unlock()
 	fmt.Printf("updateCount %v\n", updateCount)
+	go RequestPlayByPay(GameID)
 	ch <- fmt.Sprint("Updating GameID ", GameID)
-	wg.Done()
+
 }
 
 func GetLivePlayByPlay(gameID int) models.PlayByPlay {
@@ -109,10 +155,10 @@ func GetLivePlayByPlay(gameID int) models.PlayByPlay {
 
 func LoadGames() []models.Game {
 	var games = []models.Game{
-		models.Game{GameID: 1},
-		models.Game{GameID: 2},
-		models.Game{GameID: 3},
-		models.Game{GameID: 4},
+		models.Game{GameID: 47409},
+		models.Game{GameID: 47410},
+		models.Game{GameID: 47411},
+		models.Game{GameID: 47412},
 	}
 
 	return games

@@ -12,7 +12,7 @@ import (
 
 var updateCount int;
 
-var authHeader = "5384639843049-39-"
+var authHeader = "ODA5MWU4OGUtZDQ2Ni00YTdlLTljNTUtZTE2MTZhOk1ZU1BPUlRTRkVFRFM="
 
 //test http request
 func MakeRequest() {
