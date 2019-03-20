@@ -33,6 +33,7 @@ func (p *PlayByPlay) IncrementIndex(m *sync.Mutex) {
 
 type GameFeed struct {
 	LastUpdatedOn time.Time `json:"lastUpdatedOn"`
+	GameDayDate time.Time "json:gameDayDate"
 	Games         []struct {
 		Schedule struct {
 			ID        int         `json:"id"`

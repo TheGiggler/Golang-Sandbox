@@ -11,8 +11,11 @@ import (
 	"time"
 	"strconv"
 	"encoding/json"
+	"go.mongodb.org/mongo-driver/mongo"
+	"context"
+	"go.mongodb.org/mongo-driver/mongo/options"
+	//"go.mongodb.org/mongo-driver/bson"
 )
-
 var updateCount int
 
 var authHeader = "ODA5MWU4OGUtZDQ2Ni00YTdlLTljNTUtZTE2MTZhOk1ZU1BPUlRTRkVFRFM="
@@ -42,6 +45,15 @@ func RequestPlayByPay(GameID int) {
 
 func GetGamesForToday() []models.Game{
 
+
+
+	ctx, _ := context.WithTimeout(context.Background(), 10*time.Second)
+	mongoClient, err := mongo.Connect(ctx, options.Client().ApplyURI("mongodb://localhost:27017"))
+
+
+
+
+
 	//todo: get date parameter from current date
 	uri:="https://api.mysportsfeeds.com/v2.1/pull/nhl/2018-2019/date/20190317/games.json"
 	client := &http.Client{}
@@ -62,6 +74,14 @@ func GetGamesForToday() []models.Game{
 	if(newerr!=nil) {
 		log.Fatal(newerr)
 	}
+
+	gameFeed.GameDayDate = time.Now()
+	//persist to mongo
+	collection := mongoClient.Database("schedule").Collection("games")	
+	ctx, _ = context.WithTimeout(context.Background(), 5*time.Second)
+	res, err := collection.InsertOne(ctx, gameFeed)
+	id := res.InsertedID
+	log.Println(id)
 
 	games:=[]models.Game{}
 	for _, game := range gameFeed.Games {
@@ -117,19 +137,19 @@ func main() {
 
 func OutputGameResult(ch chan string, quit chan bool) {
 
-	//timer := time.NewTimer(time.Second * 6)
+	timer := time.NewTimer(time.Second * 6)
 	for true {
 		select {
 		case msg1 := <-ch:
 			fmt.Println("received", msg1)
-		//case <-timer.C:
-		//fmt.Sprint("Timer expired")
+		case <-timer.C:
+			fmt.Sprint("Timer expired")
 		case <-quit:
 			fmt.Println("Quitting OutputGameResult")
 			return
 
-			//default:
-			//	fmt.Println("no activity")
+		default:
+			fmt.Println("no activity")
 		}
 	}
 
