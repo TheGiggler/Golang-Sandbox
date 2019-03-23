@@ -1,21 +1,22 @@
 package main
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
+	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
 	"io/ioutil"
 	"log"
 	"models"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
-	"strconv"
-	"encoding/json"
-	"go.mongodb.org/mongo-driver/mongo"
-	"context"
-	"go.mongodb.org/mongo-driver/mongo/options"
-	//"go.mongodb.org/mongo-driver/bson"
 )
+
 var updateCount int
 
 var authHeader = "ODA5MWU4OGUtZDQ2Ni00YTdlLTljNTUtZTE2MTZhOk1ZU1BPUlRTRkVFRFM="
@@ -29,7 +30,7 @@ func RequestPlayByPay(GameID int) {
 	uri := strings.Replace(tmp, "{game}", id, -1)
 	client := &http.Client{}
 	req, err := http.NewRequest("GET", uri, nil)
-	req.Header.Add("Authorization","Basic " + authHeader)
+	req.Header.Add("Authorization", "Basic "+authHeader)
 	resp, err := client.Do(req)
 	if err != nil {
 		log.Fatalln(err)
@@ -43,22 +44,47 @@ func RequestPlayByPay(GameID int) {
 	log.Println(string(body))
 }
 
-func GetGamesForToday() []models.Game{
-
-
+func GetGamesForToday() []models.Game {
 
 	ctx, _ := context.WithTimeout(context.Background(), 10*time.Second)
 	mongoClient, err := mongo.Connect(ctx, options.Client().ApplyURI("mongodb://localhost:27017"))
 
+	//can do this, but not here!
+	//	year, month, day := time.Now().Date()
 
+	//get current date
+	current := time.Now()
+	var year = strconv.Itoa(current.Year())
+	var month = strconv.Itoa(int(current.Month()))
+	var day = strconv.Itoa(current.Day())
 
+	if len(month) == 1 {
+		month = "0" + month
+	}
 
+	if len(day) == 1 {
+		day = "0" + day
 
+	}
+
+	//dateString := year + "-" + day + "-" + month
+	uriDateString := year + month + day
+
+	gameDate := time.Date(current.Year(), current.Month(), current.Day(), 0, 0, 0, 0, current.Location())
+	fmt.Printf("Game Date %v\n", gameDate)
+
+	//try to get from mongo first
+
+	gamesFromDb, err := GetGamesFromDb(mongoClient, gameDate)
+	fmt.Printf("Games found:%v\n", gamesFromDb)
 	//todo: get date parameter from current date
-	uri:="https://api.mysportsfeeds.com/v2.1/pull/nhl/2018-2019/date/20190317/games.json"
+	tmp := "https://api.mysportsfeeds.com/v2.1/pull/nhl/2018-2019/date/{gameDate}/games.json"
+
+	uri := strings.Replace(tmp, "{gameDate}", uriDateString, -1)
+
 	client := &http.Client{}
 	req, err := http.NewRequest("GET", uri, nil)
-	req.Header.Add("Authorization","Basic " + authHeader)
+	req.Header.Add("Authorization", "Basic "+authHeader)
 	resp, err := client.Do(req)
 	if err != nil {
 		log.Fatalln(err)
@@ -69,28 +95,59 @@ func GetGamesForToday() []models.Game{
 		log.Fatalln(err)
 	}
 
-	gameFeed:=&models.GameFeed{}
+	gameFeed := &models.GameFeed{}
 	newerr := json.Unmarshal([]byte(body), gameFeed)
-	if(newerr!=nil) {
+	if newerr != nil {
 		log.Fatal(newerr)
 	}
+	bodyBytes := []byte(body)
+	myString := string(bodyBytes[:])
+	fmt.Printf("myString:%v\n", myString)
 
-	gameFeed.GameDayDate = time.Now()
+	//	newerr := json.Unmarshal([]byte(body), &gameFeed)
+	//	if newerr != nil {
+	//	log.Fatal(newerr)
+	//	}
+
+	gameFeed.GameDayDate = gameDate
 	//persist to mongo
-	collection := mongoClient.Database("schedule").Collection("games")	
+	collection := mongoClient.Database("schedule").Collection("games")
 	ctx, _ = context.WithTimeout(context.Background(), 5*time.Second)
 	res, err := collection.InsertOne(ctx, gameFeed)
-	id := res.InsertedID
-	log.Println(id)
 
-	games:=[]models.Game{}
+	fmt.Printf("inserted:%v\n", res.InsertedID)
+
+	games := []models.Game{}
 	for _, game := range gameFeed.Games {
-		g := models.Game{GameID:game.Schedule.ID}
-		games = append(games,g)
-    }
+		g := models.Game{GameID: game.Schedule.ID}
+		games = append(games, g)
+	}
 	//game:=new(models.Game)
 
 	return games
+}
+
+func GetGamesFromDb(client *mongo.Client, gameDate time.Time) (games *[]models.Game, err error) {
+
+	//func (coll *Collection) FindOne(ctx context.Context, filter interface{},
+	// opts ...*options.FindOneOptions) *SingleResult
+
+	collection := client.Database("schedule").Collection("games")
+	dbGames := models.GameFeed{}
+
+	gameDoc := bson.D{{"gamedaydate", gameDate}}
+	ctx, _ := context.WithTimeout(context.Background(), 5*time.Second)
+	dbErr := collection.FindOne(ctx, gameDoc).Decode(&dbGames)
+	if err != nil {
+		return nil, dbErr
+	}
+	//	s := make([]models.Game, 3)
+	games2 := []models.Game{}
+	for _, game := range dbGames.Games {
+		g := models.Game{GameID: game.Schedule.ID}
+		games2 = append(games2, g)
+	}
+	return &games2, nil
 }
 
 func main() {
