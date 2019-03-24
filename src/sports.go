@@ -22,7 +22,7 @@ var updateCount int
 var authHeader = "ODA5MWU4OGUtZDQ2Ni00YTdlLTljNTUtZTE2MTZhOk1ZU1BPUlRTRkVFRFM="
 
 //test http request
-func RequestPlayByPay(GameID int) {
+func RequestPlayByPay(GameID int, kafkaChan chan interface{}) {
 
 	id := strconv.Itoa(GameID)
 	tmp := "https://api.mysportsfeeds.com/v2.1/pull/nhl/2018-2019/games/{game}/playbyplay.json"
@@ -42,6 +42,7 @@ func RequestPlayByPay(GameID int) {
 	}
 
 	log.Println(string(body))
+	kafkaChan<-string(body)
 }
 
 func GetGamesForToday() []models.Game {
@@ -75,9 +76,14 @@ func GetGamesForToday() []models.Game {
 
 	//try to get from mongo first
 
-	gamesFromDb, err := GetGamesFromDb(mongoClient, gameDate)
+	gamesFromDb, ok := GetGamesFromDb(mongoClient, gameDate)
 	fmt.Printf("Games found:%v\n", gamesFromDb)
-	//todo: get date parameter from current date
+
+	if(ok){
+		return *gamesFromDb
+	}
+	
+	//games not in db ... get from service and save to db
 	tmp := "https://api.mysportsfeeds.com/v2.1/pull/nhl/2018-2019/date/{gameDate}/games.json"
 
 	uri := strings.Replace(tmp, "{gameDate}", uriDateString, -1)
@@ -127,7 +133,7 @@ func GetGamesForToday() []models.Game {
 	return games
 }
 
-func GetGamesFromDb(client *mongo.Client, gameDate time.Time) (games *[]models.Game, err error) {
+func GetGamesFromDb(client *mongo.Client, gameDate time.Time) (games *[]models.Game, ok bool) {
 
 	//func (coll *Collection) FindOne(ctx context.Context, filter interface{},
 	// opts ...*options.FindOneOptions) *SingleResult
@@ -138,21 +144,24 @@ func GetGamesFromDb(client *mongo.Client, gameDate time.Time) (games *[]models.G
 	gameDoc := bson.D{{"gamedaydate", gameDate}}
 	ctx, _ := context.WithTimeout(context.Background(), 5*time.Second)
 	dbErr := collection.FindOne(ctx, gameDoc).Decode(&dbGames)
-	if err != nil {
-		return nil, dbErr
+
+	if (len(dbGames.Games)==0 || dbErr!=nil){
+			return nil,false
 	}
-	//	s := make([]models.Game, 3)
+
 	games2 := []models.Game{}
 	for _, game := range dbGames.Games {
 		g := models.Game{GameID: game.Schedule.ID}
 		games2 = append(games2, g)
 	}
-	return &games2, nil
+	return &games2, true
 }
 
 func main() {
 	updateChan := make(chan string)
-	quit := make(chan bool)
+	kafkaChan := make(chan interface{})
+
+	quit := make(chan bool, 2)
 
 	fmt.Printf("Welcome to Sports!\n")
 
@@ -161,14 +170,16 @@ func main() {
 	var games = GetGamesForToday()
 	//need to get game list first ... needs to run synchronously?
 
-	go OutputGameResult(updateChan, quit)
+	//wg.Add(2)
+	go PublishToKafka(kafkaChan, quit,&wg)
+	go OutputGameResult(updateChan, quit,&wg)
 	//for true {
-	for i := 0; i < 10; i++ {
+	for i := 0; i < 1 ; i++ {
 
 		for _, game := range games {
 
 			wg.Add(1)
-			go UpdateGame(game.GameID, &wg, &mux, updateChan)
+			go UpdateGame(game, &wg, &mux, updateChan, kafkaChan)
 
 		}
 		wg.Wait()
@@ -185,42 +196,66 @@ func main() {
 	// 	fmt.Printf("%v\n", element.Index)
 
 	// }
-	fmt.Sprint("Sending quit")
+	fmt.Printf("Sending quit\n")
 	quit <- true
-	fmt.Sprint("Quit sent")
+	quit <- true
+	fmt.Print("Quit sent\n")
 	time.Sleep(time.Second * 5)
 	fmt.Printf("Sports is over!\n")
 }
 
-func OutputGameResult(ch chan string, quit chan bool) {
+func PublishToKafka(kafkaChan chan interface{},quit chan bool,wg *sync.WaitGroup){
+	
 
+	
+	for true {
+		select {
+		case newEvent := <-kafkaChan:
+			fmt.Println("Published to KAFKA%v/n", newEvent)
+			//we would publish to kafka here
+
+		case <-quit:
+			fmt.Println("Quitting PublishToKafka")
+			//wg.Done()
+			return
+
+		default:
+			//fmt.Println("no KAFKA activity")
+		}
+	}
+}
+
+func OutputGameResult(ch chan string, quit chan bool,wg *sync.WaitGroup) {
+
+	//defer wg.Done()
 	timer := time.NewTimer(time.Second * 6)
 	for true {
 		select {
-		case msg1 := <-ch:
-			fmt.Println("received", msg1)
+		case newEvent := <-ch:
+			fmt.Println("received", newEvent)
 		case <-timer.C:
 			fmt.Sprint("Timer expired")
 		case <-quit:
 			fmt.Println("Quitting OutputGameResult")
+			//wg.Done()
 			return
 
 		default:
-			fmt.Println("no activity")
+			//fmt.Println("no activity")
 		}
 	}
 
 }
 
-func UpdateGame(GameID int, wg *sync.WaitGroup, m *sync.Mutex, ch chan string) {
+func UpdateGame(game models.Game, wg *sync.WaitGroup, m *sync.Mutex, ch chan string, kafkaChan chan interface{}) {
 	defer wg.Done()
-	fmt.Printf("In Updating GameID %v\n", GameID)
+	fmt.Printf("In Updating GameID %v\n",game.GameID)
 	m.Lock()
 	updateCount++
 	m.Unlock()
 	fmt.Printf("updateCount %v\n", updateCount)
-	go RequestPlayByPay(GameID)
-	ch <- fmt.Sprint("Updating GameID ", GameID)
+	go RequestPlayByPay(game.GameID, kafkaChan)
+	ch <- fmt.Sprint("Updating GameID ", game.GameID)
 
 }
 
