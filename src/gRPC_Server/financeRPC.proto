@@ -1,0 +1,41 @@
+syntax = "proto3";
+package financial;
+
+import "google/protobuf/timestamp.proto";
+
+  service FinancialTransaction {
+    rpc ProcessTransaction(TransactionRequest) returns (TransactionResponse){}
+  }
+
+message TransactionRequest{
+    string AccountID = 1;
+    double Amount = 2;
+    TransactionType Type = 3;
+    TransactionStatus Status = 4;
+}
+
+message TransactionResponse{
+    string AccountID = 1;
+    double Amount = 2;
+    TransactionType Type = 3;
+    TransactionStatus Status = 4;
+    string TransactionID = 5;
+    google.protobuf.Timestamp TransactionDate = 6;
+
+}
+
+
+  enum TransactionType {
+    DEPOSIT = 0;
+    WITHDRAWAL = 1;
+    REFUND = 2;
+  }
+
+  enum TransactionStatus{
+      INITIATED = 0;
+      IN_PROGRESS = 1;
+      CANCELLED = 2;
+      COMPLETED = 3;
+      FAILED = 4;
+  }
+
